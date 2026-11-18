@@ -249,11 +249,11 @@
     }).join('');
     return '<section class="card model"><h2>How implied value is computed</h2>' +
       '<p>Every row is scored by one function of the snapshot figures. No protocol name is special-cased, and no row is hand-picked.</p>' +
-      '<div class="formula">implied = round( tvl_usd x peer(category) x chain(first chain) x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') )</div>' +
-      '<p>TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token; an unlisted age uses ' + m.unknown_age_days + ' days. The peer multiple is the median market-cap-to-TVL ratio of the live-token protocols in that category, shrunk toward the global median when a category has fewer than ' + m.peer_shrink + ' live peers. The chain multiple is the same ratio for the protocol\u2019s first chain, relative to the global median. The early radar is every pre-token protocol below the watchlist floor under the watchlist\u2019s own strict rule; the extended tier adds the next pre-token protocols the strict rule leaves out, bridges, liquid-staking products and versioned pools among them.</p>' +
+      '<div class="formula">implied = round( tvl_usd x peer(category) x chain(avg of all chains) x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') )</div>' +
+      '<p>TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token; an unlisted age uses ' + m.unknown_age_days + ' days. The peer multiple is the median market-cap-to-TVL ratio of the live-token protocols in that category. Ratios are winsorized to 0.02..5.0 before the median is taken, so one extreme outlier cannot move it, and the median is shrunk toward the global median when a category has fewer than ' + m.peer_shrink + ' live peers, so one protocol cannot set a whole category\u2019s price. The chain multiple averages the same ratio over every chain the protocol names, relative to the global median, so a protocol on several chains is valued by all of them, not only its first. The early radar is every pre-token protocol below the watchlist floor under the watchlist\u2019s own strict rule; the extended tier adds the next pre-token protocols the strict rule leaves out, bridges, liquid-staking products and versioned pools among them.</p>' +
       '</section>' +
       '<section class="card model peers"><h2>Peer multiples, derived from the live set</h2>' +
-      '<p>The twelve richest categories by peer multiple. Each multiple is the median market cap per dollar of TVL among the live-token protocols in that category.</p>' +
+      '<p>The twelve richest categories by peer multiple. Each multiple is the winsorized median market cap per dollar of TVL among the live-token protocols in that category.</p>' +
       '<div class="scroll"><table><thead><tr><th scope="col">Category</th><th scope="col">Peer multiple</th><th scope="col">Live peers</th></tr></thead><tbody>' + peers + '</tbody></table></div></section>' +
       '<p class="note">Implied value is this entry\u2019s own claim, never a price and never a prediction that a token will launch. A protocol on this board records no token in the snapshot; that is the record, not proof it has none.</p>';
   }
@@ -278,6 +278,8 @@
       return '<li><b>' + esc(action) + '</b><span class="cost">' + esc(tail) + '</span></li>';
     }).join('');
     var chains = row.chains && row.chains.length ? row.chains.join(', ') : 'an unnamed chain';
+    var chainCount = row.chain_count == null ? 0 : row.chain_count;
+    var chainLabel = chainCount === 0 ? 'Chain multiple (no chain listed)' : 'Chain multiple (avg of ' + chainCount + ' chain' + (chainCount === 1 ? '' : 's') + ')';
     dialog.innerHTML =
       '<div class="drawer-head"><div><span class="kicker">Rank ' + row.rank + ' of ' + DATA.board_size + ' &middot; ' + esc(row.tier) + '</span>' +
       '<h2 id="detail-title">' + esc(row.name) + '</h2>' +
@@ -288,7 +290,7 @@
       '<div><span>Seven-day growth</span><b>' + pct(row.change_7d) + '</b></div>' +
       '<div><span>Age with no token</span><b>' + age(row.age_days) + '</b></div>' +
       '<div><span>Peer multiple (' + esc(row.category || 'Other') + ', ' + row.peer_protocols + ' live peers)</span><b>' + mult(row.peer_multiple) + 'x</b></div>' +
-      '<div><span>Chain multiple (' + esc(row.chains && row.chains.length ? row.chains[0] : 'none') + ')</span><b>' + mult(row.chain_multiplier) + 'x</b></div>' +
+      '<div><span>' + esc(chainLabel) + '</span><b>' + mult(row.chain_multiplier) + 'x</b></div>' +
       '<div><span>Growth multiplier</span><b>' + mult(row.growth_multiplier) + 'x</b></div>' +
       '<div><span>Maturity multiplier</span><b>' + mult(row.maturity_multiplier) + 'x</b></div>' +
       '<div><span>Implied value</span><b>' + usd(row.implied_value_usd) + '</b></div></div>' +

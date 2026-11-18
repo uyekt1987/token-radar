@@ -14,20 +14,20 @@ A token launch radar for protocols that record no token yet, built for the [make
 - **138 early radar** — pre-token protocols below the floor that pass the watchlist's own strict rule
 - **22 extended** — the next pre-token protocols by TVL
 
-Rank 1 is Steakhouse Financial, implied $2.90B. Each row carries a 7-step farm plan.
+Rank 1 is Steakhouse Financial, implied $1.39B. Each row carries a 7-step farm plan.
 
-## The model (radar-2)
+## The model (radar-3)
 
 ```
 implied = TVL × peer × chain × growth × maturity
 ```
 
-- **peer** — the category's peer multiple: the median market-cap-to-TVL ratio of live-token protocols in the same category (shrunk toward the global median when fewer than three peers, clamped 0.05–2.5)
-- **chain** — the first chain's multiple: the median market-cap-to-TVL ratio of live protocols on that chain, divided by the global median (clamped 0.7–1.5)
-- **growth** — `1 + clamp(change_7d, -60, 120) / 100 × 0.5`
-- **maturity** — `0.6 + min(age_days, 1095) / 1095 × 0.4` (age unknown: 365 days)
+- **peer** — the category's peer multiple: the median market-cap-to-TVL ratio of live-token protocols in the same category. Ratios are winsorized to 0.02–5.0 before the median is taken, the median is shrunk toward the global median when fewer than five peers, and the result is clamped 0.05–2.0 — so one live protocol cannot set a whole category's price
+- **chain** — the average of the chain multiples of every chain the protocol names: each chain's multiple is the median market-cap-to-TVL ratio of live protocols on that chain, divided by the global median (clamped 0.8–1.3)
+- **growth** — `1 + clamp(change_7d, -70, 150) / 100 × 0.65`
+- **maturity** — `0.5 + min(age_days, 1095) / 1095 × 0.5` (age unknown: 365 days)
 
-TVL says how much capital already trusts the protocol, the peer multiple says what the market pays per dollar of TVL for that kind of protocol, growth says where the TVL is heading, maturity says how long it has run with no token, and the chain multiple says how richly its home chain is valued. Live-token protocols are kept out of the board; they only set the peer and chain multiples.
+TVL says how much capital already trusts the protocol, the peer multiple says what the market pays per dollar of TVL for that kind of protocol, growth says where the TVL is heading, maturity says how long it has run with no token, and the chain multiple says how richly its chains are valued. Live-token protocols are kept out of the board; they only set the peer and chain multiples.
 
 ## The dashboard
 

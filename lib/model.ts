@@ -10,21 +10,25 @@
 // Implied value is built only from the snapshot's own figures:
 //
 //   peer     = the category's peer multiple: the median market-cap-to-TVL ratio of the
-//              live-token protocols in that category (shrunk toward the global median
-//              when the category has fewer than three live peers, clamped 0.05..2.5).
-//              A category with no live peer at all takes the global median.
-//   chain    = the first chain's multiple: the median market-cap-to-TVL ratio of the
-//              live protocols on that chain, divided by the global median, shrunk the
-//              same way and clamped 0.7..1.5. A chain with no live peer takes 1.
-//   growth   = 1 + clamp(change_7d, -60, 120) / 100 * 0.5
-//   maturity = 0.6 + min(age_days, 1095) / 1095 * 0.4   (age unknown: 365 days)
+//              live-token protocols in that category, winsorized to 0.02..5.0 before the
+//              median is taken, shrunk toward the global median when the category has
+//              fewer than five live peers, clamped 0.05..2.0. A category with no live
+//              peer at all takes the global median. Five peers, not three, because a
+//              single live protocol must not set a whole category's price.
+//   chain    = the average of the chain multiples of every chain the protocol names,
+//              not just its first. Each chain's multiple is the median market-cap-to-TVL
+//              ratio of the live protocols on that chain, winsorized the same way,
+//              divided by the global median, shrunk the same way and clamped 0.8..1.3.
+//              A chain with no live peer contributes 1.
+//   growth   = 1 + clamp(change_7d, -70, 150) / 100 * 0.65
+//   maturity = 0.5 + min(age_days, 1095) / 1095 * 0.5   (age unknown: 365 days)
 //   implied  = round(tvl_usd * peer * chain * growth * maturity)
 //
 // TVL says how much capital already trusts the protocol, the peer multiple says what
 // the market pays per dollar of TVL for that kind of protocol, growth says where the
 // TVL is heading, maturity says how long it has run with no token (the longer the
 // wait, the closer a launch, the more the record is worth), and the chain multiple
-// says how richly the protocol's home chain is valued. Live-token protocols are kept
+// says how richly the protocol's chains are valued. Live-token protocols are kept
 // apart: the board shows the market's own market cap for them, never a model number.
 
 /** One protocol of the sealed snapshot: exactly its ten fields. */
@@ -68,23 +72,23 @@ export interface ModelConstants {
 }
 
 export const MODEL: ModelConstants = {
-  growth_weight: 0.5,
-  growth_floor: -60,
-  growth_cap: 120,
-  maturity_floor: 0.6,
-  maturity_range: 0.4,
+  growth_weight: 0.65,
+  growth_floor: -70,
+  growth_cap: 150,
+  maturity_floor: 0.5,
+  maturity_range: 0.5,
   maturity_days: 1095,
   unknown_age_days: 365,
   peer_floor: 0.05,
-  peer_cap: 2.5,
-  peer_shrink: 3,
-  chain_floor: 0.7,
-  chain_cap: 1.5,
-  chain_shrink: 3,
+  peer_cap: 2.0,
+  peer_shrink: 5,
+  chain_floor: 0.8,
+  chain_cap: 1.3,
+  chain_shrink: 5,
 };
 
 /** The model's version label, shown on the dashboard. */
-export const MODEL_VERSION = 'radar-2';
+export const MODEL_VERSION = 'radar-3';
 
 /** How many rows the board holds in all: watchlist + early + extended. */
 export const BOARD_ROWS = 200;
@@ -127,6 +131,7 @@ export interface BoardRow {
     maturity_multiplier: number;
     chain: string | null;
     chain_multiplier: number;
+    chain_count: number;
     age_days: number | null;
   };
   farm_steps: string[];
@@ -151,6 +156,7 @@ export interface RadarRow {
   growth_multiplier: number;
   maturity_multiplier: number;
   chain_multiplier: number;
+  chain_count: number;
 }
 
 /** A live-token protocol: it already trades, so the board shows the market's value. */
@@ -275,17 +281,20 @@ export interface PeerTables {
   byChain: Map<string, { multiple: number; protocols: number }>;
 }
 
-/** A live protocol's market-cap-to-TVL ratio, when both are recorded and TVL is positive. */
+/** A live protocol's market-cap-to-TVL ratio, winsorized to 0.02..5.0 so one extreme
+ *  outlier cannot drag a category's or a chain's median, when both are recorded and
+ *  TVL is positive. */
 function ratioOf(p: SnapshotProtocol): number | null {
   if (p.mcap_usd === null || p.mcap_usd <= 0 || p.tvl_usd <= 0) return null;
-  return p.mcap_usd / p.tvl_usd;
+  return clamp(p.mcap_usd / p.tvl_usd, 0.02, 5.0);
 }
 
 /**
  * Derive the peer tables from the snapshot's live protocols. The global median anchors
  * every category and chain with too few live peers to trust on its own: a multiple is
  * the category's own median shrunk toward the global median, so a category with one
- * live protocol cannot set the board's scale by itself.
+ * live protocol cannot set the board's scale by itself. Ratios are winsorized before
+ * any median is taken, so one extreme outlier cannot move a median either.
  */
 export function peerTables(protocols: SnapshotProtocol[], model: ModelConstants = MODEL): PeerTables {
   const live = protocols.filter((p) => !isPreToken(p));
@@ -315,10 +324,12 @@ export function peerTables(protocols: SnapshotProtocol[], model: ModelConstants 
   for (const p of live) {
     const r = ratioOf(p);
     if (r === null || p.chains.length === 0) continue;
-    const key = p.chains[0]!;
-    const list = chainRatios.get(key) ?? [];
-    list.push(r);
-    chainRatios.set(key, list);
+    // A live protocol is on every chain it names, so each of those chains counts it.
+    for (const key of p.chains) {
+      const list = chainRatios.get(key) ?? [];
+      list.push(r);
+      chainRatios.set(key, list);
+    }
   }
   for (const [key, list] of chainRatios) {
     list.sort((a, b) => a - b);
@@ -341,6 +352,7 @@ export interface ScoredValue {
   maturityMult: number;
   chain: string | null;
   chainMult: number;
+  chainCount: number;
   age: number | null;
 }
 
@@ -359,10 +371,16 @@ export function impliedValue(
   const ageForModel = age ?? model.unknown_age_days;
   const maturityMult = model.maturity_floor + (clamp(ageForModel, 0, model.maturity_days) / model.maturity_days) * model.maturity_range;
   const chain = p.chains.length > 0 ? p.chains[0]! : null;
-  const chainEntry = chain !== null ? tables.byChain.get(chain) : undefined;
-  const chainMult = chainEntry !== undefined ? chainEntry.multiple : 1;
+  // The chain multiple averages every chain the protocol names: a protocol on three
+  // chains is valued by all three, not only by the first one listed. A chain with no
+  // live peer contributes 1, and a protocol with no chain at all takes 1.
+  const chainCount = p.chains.length;
+  const chainMult =
+    chainCount === 0
+      ? 1
+      : round4(p.chains.reduce((sum, c) => sum + (tables.byChain.get(c)?.multiple ?? 1), 0) / chainCount);
   const implied = Math.max(1, Math.round(p.tvl_usd * peerMultiple * chainMult * growthMult * maturityMult));
-  return { implied, peerMultiple, peerProtocols, growthPct, growthMult, maturityMult, chain, chainMult, age };
+  return { implied, peerMultiple, peerProtocols, growthPct, growthMult, maturityMult, chain, chainMult, chainCount, age };
 }
 
 /** The protocols the board ranks, strongest first, with ranks 1..N. */
@@ -416,6 +434,7 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
       maturity_multiplier: round4(s.v.maturityMult),
       chain: s.v.chain,
       chain_multiplier: s.v.chainMult,
+      chain_count: s.v.chainCount,
       age_days: s.v.age,
     },
     farm_steps: farmSteps(s.p, s.v.age).map(stepText),
@@ -636,6 +655,7 @@ export function radarRow(row: BoardRow): RadarRow {
     growth_multiplier: row.model.growth_multiplier,
     maturity_multiplier: row.model.maturity_multiplier,
     chain_multiplier: row.model.chain_multiplier,
+    chain_count: row.model.chain_count,
   };
 }
 

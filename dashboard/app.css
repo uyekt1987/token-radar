@@ -101,7 +101,7 @@ tbody tr.sel { background: #1a2a1e; }
 .up { color: var(--green); }
 .down { color: var(--red); }
 .value { display: flex; align-items: center; gap: var(--s2); }
-.meter { width: 110px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; flex: none; }
+.meter { width: 120px; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; flex: none; }
 .meter i { display: block; height: 100%; background: var(--amber); }
 .badge { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
@@ -142,7 +142,9 @@ tbody tr.sel { background: #1a2a1e; }
 .drawer section { margin-top: var(--s5); padding-top: var(--s4); border-top: 1px solid var(--line); }
 .drawer section h3 { margin-bottom: var(--s2); }
 .math { display: grid; gap: var(--s2); font-family: var(--font-num); font-size: 13px; }
-.math div { display: flex; justify-content: space-between; gap: var(--s3); }
+.math div { display: flex; justify-content: space-between; gap: var(--s3); padding: 2px 0; }
+.math div:last-child { border-top: 1px solid var(--line); padding-top: var(--s3); margin-top: var(--s1); }
+.math div:last-child b { color: var(--amber); font-size: 15px; }
 .math span { color: var(--muted); }
 .drawer .fine { color: var(--muted); font-size: 13px; margin-top: var(--s3); }
 .steps { margin: 0; padding-left: var(--s5); display: grid; gap: var(--s3); }
