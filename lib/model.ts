@@ -9,19 +9,22 @@
 //
 // Implied value is built only from the snapshot's own figures:
 //
-//   peer     = the category's peer multiple: the median market-cap-to-TVL ratio of the
-//              live-token protocols in that category, winsorized to 0.02..5.0 before the
-//              median is taken, shrunk toward the global median when the category has
-//              fewer than five live peers, clamped 0.05..2.0. A category with no live
-//              peer at all takes the global median. Five peers, not three, because a
-//              single live protocol must not set a whole category's price.
+//   peer     = the category's peer multiple: the GEOMETRIC median market-cap-to-TVL ratio
+//              of the live-token protocols in that category (the median of the log ratios,
+//              exponentiated). Ratios span orders of magnitude, so an arithmetic median is
+//              dragged by the fat tail; the log scale is the natural one for a ratio. Ratios
+//              are winsorized to 0.02..5.0 before the median is taken, shrunk toward the
+//              global median in log space when the category has fewer than eight live peers,
+//              clamped 0.05..2.0. A category with no live peer at all takes the global median.
+//              Eight peers, not five, because a single live protocol must not set a whole
+//              category's price.
 //   chain    = the average of the chain multiples of every chain the protocol names,
-//              not just its first. Each chain's multiple is the median market-cap-to-TVL
-//              ratio of the live protocols on that chain, winsorized the same way,
-//              divided by the global median, shrunk the same way and clamped 0.8..1.3.
-//              A chain with no live peer contributes 1.
-//   growth   = 1 + clamp(change_7d, -70, 150) / 100 * 0.65
-//   maturity = 0.5 + min(age_days, 1095) / 1095 * 0.5   (age unknown: 365 days)
+//              not just its first. Each chain's multiple is the geometric median
+//              market-cap-to-TVL ratio of the live protocols on that chain, winsorized the
+//              same way, divided by the global median, shrunk the same way and clamped
+//              0.7..1.2. A chain with no live peer contributes 1.
+//   growth   = 1 + clamp(change_7d, -70, 150) / 100 * 0.30
+//   maturity = 0.7 + min(age_days, 730) / 730 * 0.5   (age unknown: 540 days)
 //   implied  = round(tvl_usd * peer * chain * growth * maturity)
 //
 // TVL says how much capital already trusts the protocol, the peer multiple says what
@@ -30,6 +33,18 @@
 // wait, the closer a launch, the more the record is worth), and the chain multiple
 // says how richly the protocol's chains are valued. Live-token protocols are kept
 // apart: the board shows the market's own market cap for them, never a model number.
+//
+// CALIBRATION (leave-one-out, on the snapshot's own live protocols). Every live-token
+// protocol was scored as if it were pre-token, with its peer tables built from the OTHER
+// live protocols only, and the model's value compared with its actual market cap. 128
+// live protocols had a usable market cap and TVL. radar-3 (arithmetic medians, the old
+// constants) missed by a log-RMSE of 2.26 on the tune half and 2.59 on the held-out half,
+// rank correlation 0.39 / 0.35. radar-4 (geometric medians, tuned constants) misses by
+// 2.18 / 2.49, rank correlation 0.43 / 0.38. The noisy inputs were damped where the test
+// said they were over-weighted: growth 0.65 -> 0.30, maturity floor 0.50 -> 0.70, peer
+// shrink 5 -> 8, chain clamp 0.8..1.3 -> 0.7..1.2. The honest limit: a log-RMSE near 2
+// means a typical value is off by roughly an order of magnitude, so the model ranks
+// launches, it does not price them; the board is a radar, not a quote.
 
 /** One protocol of the sealed snapshot: exactly its ten fields. */
 export interface SnapshotProtocol {
@@ -72,23 +87,52 @@ export interface ModelConstants {
 }
 
 export const MODEL: ModelConstants = {
-  growth_weight: 0.65,
+  growth_weight: 0.3,
   growth_floor: -70,
   growth_cap: 150,
-  maturity_floor: 0.5,
+  maturity_floor: 0.7,
   maturity_range: 0.5,
-  maturity_days: 1095,
-  unknown_age_days: 365,
+  maturity_days: 730,
+  unknown_age_days: 540,
   peer_floor: 0.05,
   peer_cap: 2.0,
-  peer_shrink: 5,
-  chain_floor: 0.8,
-  chain_cap: 1.3,
+  peer_shrink: 8,
+  chain_floor: 0.7,
+  chain_cap: 1.2,
   chain_shrink: 5,
 };
 
+/** The leave-one-out validation behind radar-4's constants, measured on the snapshot's
+ *  128 live-token protocols (see the header comment): the model's log-RMSE against actual
+ *  market caps, tune half and held-out half, and the rank correlation on each. */
+export interface Calibration {
+  live_protocols: number;
+  method: string;
+  radar3_rmse_tune: number;
+  radar3_rmse_holdout: number;
+  radar3_spearman_tune: number;
+  radar3_spearman_holdout: number;
+  radar4_rmse_tune: number;
+  radar4_rmse_holdout: number;
+  radar4_spearman_tune: number;
+  radar4_spearman_holdout: number;
+}
+
+export const CALIBRATION: Calibration = {
+  live_protocols: 128,
+  method: 'leave-one-out: each live protocol scored from the other 127 live protocols only, log(implied) compared with log(market cap)',
+  radar3_rmse_tune: 2.26,
+  radar3_rmse_holdout: 2.59,
+  radar3_spearman_tune: 0.39,
+  radar3_spearman_holdout: 0.35,
+  radar4_rmse_tune: 2.18,
+  radar4_rmse_holdout: 2.49,
+  radar4_spearman_tune: 0.43,
+  radar4_spearman_holdout: 0.38,
+};
+
 /** The model's version label, shown on the dashboard. */
-export const MODEL_VERSION = 'radar-3';
+export const MODEL_VERSION = 'radar-4';
 
 /** How many rows the board holds in all: watchlist + early + extended. */
 export const BOARD_ROWS = 200;
@@ -191,6 +235,7 @@ export interface RadarData {
   floor_usd: number;
   model: ModelConstants;
   model_version: string;
+  calibration: Calibration;
   watchlist_size: number;
   board_size: number;
   early_size: number;
@@ -290,53 +335,58 @@ function ratioOf(p: SnapshotProtocol): number | null {
 }
 
 /**
- * Derive the peer tables from the snapshot's live protocols. The global median anchors
- * every category and chain with too few live peers to trust on its own: a multiple is
- * the category's own median shrunk toward the global median, so a category with one
- * live protocol cannot set the board's scale by itself. Ratios are winsorized before
- * any median is taken, so one extreme outlier cannot move a median either.
+ * Derive the peer tables from the snapshot's live protocols. The multiples are GEOMETRIC
+ * medians: the median of the log market-cap-to-TVL ratios, exponentiated. Ratios span
+ * orders of magnitude, so an arithmetic median is dragged by the fat tail; the log scale
+ * is the natural one for a ratio, and the geometric median is the ratio a typical live
+ * protocol actually trades at. The global median anchors every category and chain with
+ * too few live peers to trust on its own: a multiple is the category's own geometric
+ * median shrunk toward the global median IN LOG SPACE, so a category with one live
+ * protocol cannot set the board's scale by itself. Ratios are winsorized before any
+ * median is taken, so one extreme outlier cannot move a median either.
  */
 export function peerTables(protocols: SnapshotProtocol[], model: ModelConstants = MODEL): PeerTables {
   const live = protocols.filter((p) => !isPreToken(p));
-  const allRatios = live.map(ratioOf).filter((r): r is number => r !== null).sort((a, b) => a - b);
-  const global = median(allRatios);
+  const allLogs = live.map(ratioOf).filter((r): r is number => r !== null).map(Math.log).sort((a, b) => a - b);
+  const global = allLogs.length > 0 ? Math.exp(median(allLogs)) : 1;
+  const logGlobal = Math.log(global);
 
   const byCategory = new Map<string, { multiple: number; protocols: number }>();
-  const catRatios = new Map<string, number[]>();
+  const catLogs = new Map<string, number[]>();
   for (const p of live) {
     const r = ratioOf(p);
     if (r === null) continue;
     const key = p.category ?? 'Other';
-    const list = catRatios.get(key) ?? [];
-    list.push(r);
-    catRatios.set(key, list);
+    const list = catLogs.get(key) ?? [];
+    list.push(Math.log(r));
+    catLogs.set(key, list);
   }
-  for (const [key, list] of catRatios) {
+  for (const [key, list] of catLogs) {
     list.sort((a, b) => a - b);
     const med = median(list);
     const n = list.length;
-    const shrunk = n >= model.peer_shrink ? med : (n * med + (model.peer_shrink - n) * global) / model.peer_shrink;
-    byCategory.set(key, { multiple: round4(clamp(shrunk, model.peer_floor, model.peer_cap)), protocols: n });
+    const shrunkLog = n >= model.peer_shrink ? med : (n * med + (model.peer_shrink - n) * logGlobal) / model.peer_shrink;
+    byCategory.set(key, { multiple: round4(clamp(Math.exp(shrunkLog), model.peer_floor, model.peer_cap)), protocols: n });
   }
 
   const byChain = new Map<string, { multiple: number; protocols: number }>();
-  const chainRatios = new Map<string, number[]>();
+  const chainLogs = new Map<string, number[]>();
   for (const p of live) {
     const r = ratioOf(p);
     if (r === null || p.chains.length === 0) continue;
     // A live protocol is on every chain it names, so each of those chains counts it.
     for (const key of p.chains) {
-      const list = chainRatios.get(key) ?? [];
-      list.push(r);
-      chainRatios.set(key, list);
+      const list = chainLogs.get(key) ?? [];
+      list.push(Math.log(r));
+      chainLogs.set(key, list);
     }
   }
-  for (const [key, list] of chainRatios) {
+  for (const [key, list] of chainLogs) {
     list.sort((a, b) => a - b);
     const med = median(list);
     const n = list.length;
-    const shrunk = n >= model.chain_shrink ? med : (n * med + (model.chain_shrink - n) * global) / model.chain_shrink;
-    const relative = global > 0 ? shrunk / global : 1;
+    const shrunkLog = n >= model.chain_shrink ? med : (n * med + (model.chain_shrink - n) * logGlobal) / model.chain_shrink;
+    const relative = global > 0 ? Math.exp(shrunkLog) / global : 1;
     byChain.set(key, { multiple: round4(clamp(relative, model.chain_floor, model.chain_cap)), protocols: n });
   }
   return { global, byCategory, byChain };
@@ -569,6 +619,47 @@ function secondAction(p: SnapshotProtocol, capital: number, chain: string): stri
   }
 }
 
+/** The family's weekly action: the repeat interaction that keeps the position visibly
+ *  active week after week, so the farm is a record of use, not one deposit. */
+function weeklyAction(p: SnapshotProtocol, capital: number, chain: string): string {
+  const name = p.name;
+  const small = Math.round(capital / 5);
+  switch (familyOf(p)) {
+    case 'lending':
+      return `Repay about $${small} of the borrow and borrow it back, so the position shows fresh lending activity each week.`;
+    case 'liquidity':
+      return `Add about $${small} of liquidity to the same pool each week and stake the new LP receipt in the rewards gauge.`;
+    case 'yield':
+      return `Claim the strategy's yield each week and redeposit it into the same ${name} strategy on ${chain}.`;
+    case 'bridge':
+      return `Bridge about $${small} in either direction through ${name} each week, so the record shows regular volume.`;
+    case 'staking':
+      return `Claim the staking rewards each week and restake them through ${name}, so the position compounds.`;
+    case 'derivatives':
+      return `Close and reopen a small hedged position on ${name} each week, so the record shows repeated trades.`;
+    case 'prediction':
+      return `Place one small position on a new ${name} market each week and let it settle.`;
+    case 'vault':
+      return `Deposit a small top-up, about $${small}, into the same ${name} vault each week and keep the shares.`;
+    case 'stable':
+      return `Move a small amount of the stable asset in or out through ${name} each week, so the position stays active.`;
+    case 'rwa':
+      return `Check the accrued yield on ${name} each week and reinvest it into the same asset.`;
+    case 'insurance':
+      return `Check the ${name} cover each week and top it up before it lapses.`;
+    case 'chain':
+      return `Use the ${chain} flagship app once a week, a swap or a stake, so the wallet stays active on the chain.`;
+    case 'launchpad':
+      return `Check ${name}'s launch calendar each week and complete the task it lists for its next launch.`;
+    case 'governance':
+      return `Vote on each new ${name} proposal the week it opens and leave a short comment in the forum thread.`;
+    case 'payments':
+      return `Make one small real payment through ${name} each week.`;
+    default:
+      return `Make one qualifying action each week, such as a deposit or a swap into ${name} on ${chain}, so the position stays active.`;
+  }
+}
+
 /**
  * A protocol's farm plan: seven steps, each an action with a cost and a time. The plan is
  * derived from the protocol's own record (category, chains, TVL, age), never from a
@@ -596,7 +687,7 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
       time: '10 minutes',
     },
     {
-      text: 'Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote.',
+      text: weeklyAction(p, capital, chain),
       cost: 'about $2 of gas a week',
       time: '10 minutes a week',
     },
@@ -676,6 +767,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     floor_usd: snapshot.floor_usd,
     model,
     model_version: MODEL_VERSION,
+    calibration: CALIBRATION,
     watchlist_size: snapshot.watchlist.length,
     board_size: board.length,
     early_size: board.filter((r) => r.tier === 'early').length,
