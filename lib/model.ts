@@ -433,6 +433,109 @@ export function impliedValue(
   return { implied, peerMultiple, peerProtocols, growthPct, growthMult, maturityMult, chain, chainMult, chainCount, age };
 }
 
+/** The leave-one-out backtest of the radar-4 model on the snapshot's live protocols. */
+export interface ValidationReport {
+  /** Live protocols with a usable market cap and TVL that were backtested. */
+  live_protocols: number;
+  /** Root mean square of log(implied) - log(market cap): the typical miss, in log points. */
+  log_rmse: number;
+  /** Spearman rank correlation between the model's values and the market's. */
+  spearman: number;
+  /** The median absolute log error: half the protocols miss by less than this. */
+  median_abs_log_error: number;
+  /** The largest absolute log error: the single worst miss in the backtest. */
+  worst_abs_log_error: number;
+}
+
+/**
+ * Backtest the model on the snapshot's live-token protocols. Each live protocol
+ * is scored as if it were pre-token, with its peer tables built from the OTHER
+ * live protocols only (leave-one-out), so its own market cap can never leak
+ * into the multiple that prices it. The model's implied value is then compared
+ * with the protocol's actual market cap on the log scale, because market caps
+ * span orders of magnitude: the error is log(implied) - log(market cap).
+ *
+ * The report carries the log-RMSE (the typical miss, in log points), the
+ * Spearman rank correlation between the model's values and the market's (does
+ * the model order launches the way the market ordered them?), the median
+ * absolute log error, and the single worst miss. The honest limit: a log-RMSE
+ * near 2 means a typical value is off by roughly an order of magnitude, so the
+ * model ranks launches, it does not price them; the board is a radar, not a
+ * quote. A backtest on the live set is the only honest check the sealed
+ * snapshot allows: the pre-token protocols have no market cap to check against,
+ * so the live ones stand in for them, and the leave-one-out rule keeps the
+ * test from flattering itself.
+ */
+export function validateModel(snapshot: Snapshot, model: ModelConstants = MODEL): ValidationReport {
+  const live = snapshot.protocols.filter(
+    (p) => !isPreToken(p) && p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0,
+  );
+  const errors: number[] = [];
+  const impliedLogs: number[] = [];
+  const actualLogs: number[] = [];
+  for (const p of live) {
+    const others = snapshot.protocols.filter((q) => q.slug !== p.slug);
+    const tables = peerTables(others, model);
+    const scored = impliedValue(p, snapshot.as_of, tables, model);
+    const actual = p.mcap_usd!;
+    errors.push(Math.log(scored.implied) - Math.log(actual));
+    impliedLogs.push(Math.log(scored.implied));
+    actualLogs.push(Math.log(actual));
+  }
+  const n = errors.length;
+  if (n < 2) {
+    return { live_protocols: n, log_rmse: 0, spearman: 0, median_abs_log_error: 0, worst_abs_log_error: 0 };
+  }
+  const rmse = Math.sqrt(errors.reduce((sum, e) => sum + e * e, 0) / n);
+  const absSorted = errors.map((e) => Math.abs(e)).sort((a, b) => a - b);
+  const medianAbs = median(absSorted);
+  const worstAbs = absSorted[absSorted.length - 1]!;
+  const spearman = pearson(rankValues(impliedLogs), rankValues(actualLogs));
+  return {
+    live_protocols: n,
+    log_rmse: round4(rmse),
+    spearman: round4(spearman),
+    median_abs_log_error: round4(medianAbs),
+    worst_abs_log_error: round4(worstAbs),
+  };
+}
+
+/** Ranks, 1-based with the average rank for ties, so a Spearman correlation
+ *  never depends on the order tied values happen to arrive in. */
+function rankValues(values: number[]): number[] {
+  const order = values.map((v, i) => ({ value: v, index: i })).sort((a, b) => a.value - b.value || a.index - b.index);
+  const ranks = new Array<number>(values.length);
+  let j = 0;
+  while (j < order.length) {
+    let k = j;
+    while (k + 1 < order.length && order[k + 1]!.value === order[j]!.value) k++;
+    const average = (j + k) / 2 + 1;
+    for (let t = j; t <= k; t++) ranks[order[t]!.index] = average;
+    j = k + 1;
+  }
+  return ranks;
+}
+
+/** The Pearson correlation of two equal-length lists, 0 when either is flat. */
+function pearson(a: number[], b: number[]): number {
+  const n = a.length;
+  if (n === 0) return 0;
+  const meanA = a.reduce((sum, v) => sum + v, 0) / n;
+  const meanB = b.reduce((sum, v) => sum + v, 0) / n;
+  let covariance = 0;
+  let varianceA = 0;
+  let varianceB = 0;
+  for (let i = 0; i < n; i++) {
+    const deltaA = a[i]! - meanA;
+    const deltaB = b[i]! - meanB;
+    covariance += deltaA * deltaB;
+    varianceA += deltaA * deltaA;
+    varianceB += deltaB * deltaB;
+  }
+  if (varianceA === 0 || varianceB === 0) return 0;
+  return covariance / Math.sqrt(varianceA * varianceB);
+}
+
 /** The protocols the board ranks, strongest first, with ranks 1..N. */
 export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): BoardRow[] {
   const tables = peerTables(snapshot.protocols, model);
