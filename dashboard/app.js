@@ -1,6 +1,7 @@
-// Token Radar's dashboard. It reads window.RADAR (written beside dashboard/ by main.ts)
-// and renders the ranked board, filters, a per-protocol detail drawer with the model's
-// own inputs, and the farm plan. No network: every byte it shows is in data.js.
+// Token Radar's dashboard. It reads window.RADAR (written beside dashboard/ by
+// main.ts) and renders the ranked board, the filters, a per-protocol detail
+// drawer carrying the model's own inputs and the farm plan, and the model
+// explainer. No network: every byte on the page comes from data.js.
 (function () {
   'use strict';
 
@@ -8,13 +9,25 @@
   var app = document.getElementById('board');
   if (!DATA || !app) return;
 
-  var state = { q: '', category: 'all', tier: 'all', tab: 'pre-token', sort: 'implied', dir: -1, selected: null };
+  var state = {
+    q: '',
+    category: 'all',
+    tier: 'all',
+    tab: 'pre-token',
+    sort: 'implied',
+    dir: -1,
+    selected: null,
+  };
 
-  function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+  // -- formatting -----------------------------------------------------------
+
+  function esc(value) {
+    var s = value === null || value === undefined ? '' : String(value);
+    return s.replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+
   function usd(n) {
     if (n === null || n === undefined || !isFinite(n)) return 'n/a';
     if (Math.abs(n) >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
@@ -22,44 +35,65 @@
     if (Math.abs(n) >= 1e3) return '$' + Math.round(n / 1e3) + 'K';
     return '$' + Math.round(n);
   }
+
   function pct(n) {
     if (n === null || n === undefined || !isFinite(n)) return 'n/a';
     return (n > 0 ? '+' : '') + n.toFixed(2) + '%';
   }
-  function age(days) {
+
+  function ageLabel(days) {
     if (days === null || days === undefined) return 'unknown';
     if (days >= 365) return (days / 365).toFixed(1) + 'y';
     return Math.max(0, Math.round(days)) + 'd';
   }
-  function mult(n) { return (Math.round(n * 10000) / 10000).toFixed(2).replace(/0$/, ''); }
 
-  // The model in one function: the page recomputes a row from the snapshot figures and
-  // checks the number board.json carries, so the page and the board are visibly the same
-  // arithmetic. Peer and chain multiples arrive in the data, derived from the live set.
+  // Two decimals with one trailing zero trimmed: 0.2969 -> "0.3", 1.5 -> "1.5".
+  function mult(n) {
+    return (Math.round(n * 10000) / 10000).toFixed(2).replace(/0$/, '');
+  }
+
+  // -- the model, recomputed on the page ------------------------------------
+  //
+  // The page re-derives a row from the snapshot figures and checks the number
+  // board.json carries, so the page and the board are visibly the same
+  // arithmetic. Peer and chain multiples arrive in the data, derived from the
+  // live set.
+
   function impliedOf(row, model) {
-    var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d == null ? 0 : row.change_7d));
+    var growth = row.change_7d == null ? 0 : row.change_7d;
+    growth = Math.min(model.growth_cap, Math.max(model.growth_floor, growth));
     var growthMult = 1 + (growth / 100) * model.growth_weight;
     var ageDays = row.age_days == null ? model.unknown_age_days : row.age_days;
-    var maturity = model.maturity_floor + (Math.min(Math.max(ageDays, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
+    var maturity =
+      model.maturity_floor +
+      (Math.min(Math.max(ageDays, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
     return Math.max(1, Math.round(row.tvl_usd * row.peer_multiple * row.chain_multiplier * growthMult * maturity));
   }
 
-  // The farm plan is the same derivation main.ts writes to board.json: the category
-  // decides the action, TVL decides the capital, age decides the hold. No name is
-  // special-cased, so the page's plan and the board's plan are the same words.
-  function chainOf(p) { return p.chains && p.chains.length ? p.chains[0] : 'its main chain'; }
+  // -- the farm plan, derived the same way board.json derives it ------------
+  //
+  // The category decides the action, TVL decides the capital, age decides the
+  // hold. No name is special-cased, so the page's plan and the board's plan are
+  // the same words.
+
+  function chainOf(p) {
+    return p.chains && p.chains.length ? p.chains[0] : 'its main chain';
+  }
+
   function capitalFor(p) {
     if (p.tvl_usd >= 5e9) return 250;
     if (p.tvl_usd >= 1e9) return 150;
     if (p.tvl_usd >= 1e8) return 100;
     return 50;
   }
+
   function holdFor(ageDays) {
     if (ageDays == null) return 30;
     if (ageDays < 180) return 60;
     if (ageDays < 365) return 45;
     return 30;
   }
+
   function familyOf(p) {
     var c = (p.category || '').toLowerCase();
     if (c.indexOf('lend') >= 0 || c.indexOf('cdp') >= 0 || c.indexOf('collateral') >= 0) return 'lending';
@@ -79,6 +113,7 @@
     if (c.indexOf('payment') >= 0 || c.indexOf('card') >= 0) return 'payments';
     return 'deposit';
   }
+
   function mainAction(p, capital, chain) {
     var name = p.name;
     switch (familyOf(p)) {
@@ -100,6 +135,7 @@
       default: return 'Deposit $' + capital + ' of USDC into ' + name + ' on ' + chain + ' and keep the position open.';
     }
   }
+
   function secondAction(p, capital, chain) {
     var name = p.name;
     switch (familyOf(p)) {
@@ -121,6 +157,7 @@
       default: return 'Make a second deposit, about $' + Math.round(capital / 2) + ', into a different pool of ' + name + ' on ' + chain + '.';
     }
   }
+
   function weeklyAction(p, capital, chain) {
     var name = p.name;
     var small = Math.round(capital / 5);
@@ -143,6 +180,7 @@
       default: return 'Make one qualifying action each week, such as a deposit or a swap into ' + name + ' on ' + chain + ', so the position stays active.';
     }
   }
+
   function farmSteps(p) {
     var chain = chainOf(p);
     var capital = capitalFor(p);
@@ -155,7 +193,7 @@
       { text: weeklyAction(p, capital, chain), cost: 'about $2 of gas a week', time: '10 minutes a week' },
       { text: 'Hold the position for at least ' + hold + ' days so the activity is counted in more than one snapshot.', cost: 'the $' + capital + ' stays in the position', time: hold + ' days' },
       { text: "Before you withdraw, open the protocol's own points or rewards page and claim only from the link it publishes.", cost: 'no fee to check, and never pay to claim', time: '10 minutes' },
-      { text: 'Write the wallet, the dates and every transaction in a farm log so you can repeat the position or unwind it.', cost: 'nothing but the log', time: '5 minutes' }
+      { text: 'Write the wallet, the dates and every transaction in a farm log so you can repeat the position or unwind it.', cost: 'nothing but the log', time: '5 minutes' },
     ];
     return steps.map(function (s) {
       var out = s.text + ' Cost: ' + s.cost + '. Time: ' + s.time + '.';
@@ -165,6 +203,8 @@
     });
   }
 
+  // -- shareable state in the URL hash --------------------------------------
+
   function readHash() {
     var params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
     if (params.get('q')) state.q = params.get('q');
@@ -173,6 +213,7 @@
     if (params.get('tab')) state.tab = params.get('tab');
     if (params.get('p')) state.selected = params.get('p');
   }
+
   function writeHash() {
     var params = new URLSearchParams();
     if (state.q) params.set('q', state.q);
@@ -185,7 +226,9 @@
     else window.history.replaceState(null, '', window.location.pathname + window.location.search);
   }
 
-  function filteredRows() {
+  // -- filtering and sorting -------------------------------------------------
+
+  function visibleRows() {
     var q = state.q.trim().toLowerCase();
     return DATA.rows.filter(function (r) {
       if (state.category !== 'all' && r.category !== state.category) return false;
@@ -195,61 +238,72 @@
       return hay.indexOf(q) >= 0;
     });
   }
-  function sortedRows(list) {
+
+  function sortValue(row, key) {
+    if (key === 'name') return row.name.toLowerCase();
+    if (key === 'tvl') return row.tvl_usd;
+    if (key === 'growth') return row.change_7d == null ? -Infinity : row.change_7d;
+    if (key === 'age') return row.age_days == null ? Infinity : row.age_days;
+    if (key === 'peer') return row.peer_multiple;
+    return row.implied_value_usd;
+  }
+
+  function sortRows(list) {
     var key = state.sort;
     return list.slice().sort(function (a, b) {
-      var av, bv;
-      if (key === 'name') { av = a.name.toLowerCase(); bv = b.name.toLowerCase(); }
-      else if (key === 'tvl') { av = a.tvl_usd; bv = b.tvl_usd; }
-      else if (key === 'growth') { av = a.change_7d == null ? -Infinity : a.change_7d; bv = b.change_7d == null ? -Infinity : b.change_7d; }
-      else if (key === 'age') { av = a.age_days == null ? Infinity : a.age_days; bv = b.age_days == null ? Infinity : b.age_days; }
-      else if (key === 'peer') { av = a.peer_multiple; bv = b.peer_multiple; }
-      else { av = a.implied_value_usd; bv = b.implied_value_usd; }
+      var av = sortValue(a, key);
+      var bv = sortValue(b, key);
       if (av < bv) return -state.dir;
       if (av > bv) return state.dir;
       return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0;
     });
   }
 
-  function tierLabel(tier) {
+  // -- board table -----------------------------------------------------------
+
+  function tierBadge(tier) {
     if (tier === 'watchlist') return '<span class="tier watch">watchlist</span>';
     if (tier === 'extended') return '<span class="tier ext">extended</span>';
     return '';
   }
-  function rowHtml(r, maxImplied) {
+
+  function boardRow(r, maxImplied) {
     var growth = r.change_7d == null ? 'n/a' : pct(r.change_7d);
     var growthClass = r.change_7d == null ? '' : r.change_7d >= 0 ? 'up' : 'down';
     var chains = r.chains && r.chains.length ? r.chains.slice(0, 2).join(', ') : 'an unnamed chain';
     var width = Math.max(3, Math.round((r.implied_value_usd / maxImplied) * 100));
     return '<tr data-slug="' + esc(r.slug) + '" data-selected="' + (state.selected === r.slug) + '" tabindex="0">' +
       '<td class="num">' + r.rank + '</td>' +
-      '<td><div class="who"><b>' + esc(r.name) + tierLabel(r.tier) + '</b><span>' + esc(r.category || 'Other') + ' on ' + esc(chains) + '</span></div></td>' +
+      '<td><div class="who"><b>' + esc(r.name) + tierBadge(r.tier) + '</b><span>' + esc(r.category || 'Other') + ' on ' + esc(chains) + '</span></div></td>' +
       '<td class="num">' + usd(r.tvl_usd) + '</td>' +
       '<td class="num ' + growthClass + '">' + growth + '</td>' +
-      '<td class="num">' + age(r.age_days) + '</td>' +
+      '<td class="num">' + ageLabel(r.age_days) + '</td>' +
       '<td class="num">' + mult(r.peer_multiple) + 'x</td>' +
       '<td><div class="value"><div class="meter" aria-hidden="true"><i style="width:' + width + '%"></i></div><span class="num">' + usd(r.implied_value_usd) + '</span></div></td>' +
       '<td><span class="badge">no token</span></td></tr>';
   }
-  function sortBtn(key, label) {
+
+  function sortHeader(key, label) {
     var arrow = state.sort === key ? (state.dir < 0 ? ' v' : ' ^') : '';
     return '<th scope="col"><button type="button" data-sort="' + key + '">' + label + esc(arrow) + '</button></th>';
   }
 
   function boardTable() {
-    var list = sortedRows(filteredRows());
-    var head = '<tr>' + sortBtn('implied', 'Rank') + sortBtn('name', 'Protocol') + sortBtn('tvl', 'TVL') +
-      sortBtn('growth', '7d') + sortBtn('age', 'Age') + sortBtn('peer', 'Peer') + sortBtn('implied', 'Implied value') +
-      '<th scope="col">Token</th></tr>';
+    var list = sortRows(visibleRows());
     if (list.length === 0) {
       return '<div class="card"><div class="empty"><h2>No protocol matches that filter</h2>' +
         '<p>Clear the search or pick another category to see the board again.</p>' +
         '<button class="btn primary" type="button" data-clear="1">Clear filters</button></div></div>';
     }
+    var head = '<tr>' + sortHeader('implied', 'Rank') + sortHeader('name', 'Protocol') + sortHeader('tvl', 'TVL') +
+      sortHeader('growth', '7d') + sortHeader('age', 'Age') + sortHeader('peer', 'Peer') + sortHeader('implied', 'Implied value') +
+      '<th scope="col">Token</th></tr>';
     var max = list[0].implied_value_usd || 1;
     return '<div class="card"><div class="scroll"><table><caption>Pre-token protocols, strongest implied value first. Select a row for its model and farm plan.</caption>' +
-      '<thead>' + head + '</thead><tbody>' + list.map(function (r) { return rowHtml(r, max); }).join('') + '</tbody></table></div></div>';
+      '<thead>' + head + '</thead><tbody>' + list.map(function (r) { return boardRow(r, max); }).join('') + '</tbody></table></div></div>';
   }
+
+  // -- live-token table ------------------------------------------------------
 
   function liveTable() {
     var rows = DATA.live.map(function (r) {
@@ -262,6 +316,15 @@
     return '<div class="card"><div class="scroll"><table><caption>Token live: these protocols already trade, so their market cap is a fact, not a model. They are set aside from the pre-token ranking.</caption>' +
       '<thead><tr><th scope="col">Status</th><th scope="col">Protocol</th><th scope="col">TVL</th><th scope="col">7d</th><th scope="col">Market cap</th><th scope="col">Token</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div></div>';
+  }
+
+  // -- model explainer -------------------------------------------------------
+
+  function calibrationPanel() {
+    var c = DATA.calibration;
+    if (!c) return '';
+    return '<section class="card model calib"><h2>Validated, not guessed</h2>' +
+      '<p>Every live-token protocol in the snapshot was scored as if it were pre-token, with its peer tables built from the other live protocols only, and the model\u2019s value compared with its actual market cap (' + c.live_protocols + ' live protocols). radar-3 missed by a log-RMSE of ' + c.radar3_rmse_tune + ' on the tune half and ' + c.radar3_rmse_holdout + ' on the held-out half, rank correlation ' + c.radar3_spearman_tune + ' / ' + c.radar3_spearman_holdout + '. radar-4 misses by ' + c.radar4_rmse_tune + ' / ' + c.radar4_rmse_holdout + ', rank correlation ' + c.radar4_spearman_tune + ' / ' + c.radar4_spearman_holdout + '. The noisy inputs were damped where the test said they were over-weighted: growth 0.65 to 0.30, maturity floor 0.50 to 0.70, peer shrink 5 to 8, chain clamp 0.8..1.3 to 0.7..1.2. A log-RMSE near 2 means a typical value is off by roughly an order of magnitude, so the model ranks launches; it does not price them.</p></section>';
   }
 
   function modelPanel() {
@@ -277,16 +340,11 @@
       '<section class="card model peers"><h2>Peer multiples, derived from the live set</h2>' +
       '<p>The twelve richest categories by peer multiple. Each multiple is the winsorized geometric median market cap per dollar of TVL among the live-token protocols in that category.</p>' +
       '<div class="scroll"><table><thead><tr><th scope="col">Category</th><th scope="col">Peer multiple</th><th scope="col">Live peers</th></tr></thead><tbody>' + peers + '</tbody></table></div></section>' +
-      calibPanel() +
+      calibrationPanel() +
       '<p class="note">Implied value is this entry\u2019s own claim, never a price and never a prediction that a token will launch. A protocol on this board records no token in the snapshot; that is the record, not proof it has none.</p>';
   }
 
-  function calibPanel() {
-    var c = DATA.calibration;
-    if (!c) return '';
-    return '<section class="card model calib"><h2>Validated, not guessed</h2>' +
-      '<p>Every live-token protocol in the snapshot was scored as if it were pre-token, with its peer tables built from the other live protocols only, and the model\u2019s value compared with its actual market cap (' + c.live_protocols + ' live protocols). radar-3 missed by a log-RMSE of ' + c.radar3_rmse_tune + ' on the tune half and ' + c.radar3_rmse_holdout + ' on the held-out half, rank correlation ' + c.radar3_spearman_tune + ' / ' + c.radar3_spearman_holdout + '. radar-4 misses by ' + c.radar4_rmse_tune + ' / ' + c.radar4_rmse_holdout + ', rank correlation ' + c.radar4_spearman_tune + ' / ' + c.radar4_spearman_holdout + '. The noisy inputs were damped where the test said they were over-weighted: growth 0.65 to 0.30, maturity floor 0.50 to 0.70, peer shrink 5 to 8, chain clamp 0.8..1.3 to 0.7..1.2. A log-RMSE near 2 means a typical value is off by roughly an order of magnitude, so the model ranks launches; it does not price them.</p></section>';
-  }
+  // -- detail drawer ---------------------------------------------------------
 
   var dialog = document.createElement('dialog');
   dialog.className = 'drawer';
@@ -295,7 +353,9 @@
 
   function openDetail(slug) {
     var row = null;
-    for (var i = 0; i < DATA.rows.length; i++) if (DATA.rows[i].slug === slug) { row = DATA.rows[i]; break; }
+    for (var i = 0; i < DATA.rows.length; i++) {
+      if (DATA.rows[i].slug === slug) { row = DATA.rows[i]; break; }
+    }
     if (!row) return;
     state.selected = slug;
     writeHash();
@@ -309,7 +369,9 @@
     }).join('');
     var chains = row.chains && row.chains.length ? row.chains.join(', ') : 'an unnamed chain';
     var chainCount = row.chain_count == null ? 0 : row.chain_count;
-    var chainLabel = chainCount === 0 ? 'Chain multiple (no chain listed)' : 'Chain multiple (avg of ' + chainCount + ' chain' + (chainCount === 1 ? '' : 's') + ')';
+    var chainLabel = chainCount === 0
+      ? 'Chain multiple (no chain listed)'
+      : 'Chain multiple (avg of ' + chainCount + ' chain' + (chainCount === 1 ? '' : 's') + ')';
     dialog.innerHTML =
       '<div class="drawer-head"><div><span class="kicker">Rank ' + row.rank + ' of ' + DATA.board_size + ' &middot; ' + esc(row.tier) + '</span>' +
       '<h2 id="detail-title">' + esc(row.name) + '</h2>' +
@@ -318,7 +380,7 @@
       '<section><h3>Implied value</h3><div class="math">' +
       '<div><span>TVL</span><b>' + usd(row.tvl_usd) + '</b></div>' +
       '<div><span>Seven-day growth</span><b>' + pct(row.change_7d) + '</b></div>' +
-      '<div><span>Age with no token</span><b>' + age(row.age_days) + '</b></div>' +
+      '<div><span>Age with no token</span><b>' + ageLabel(row.age_days) + '</b></div>' +
       '<div><span>Peer multiple (' + esc(row.category || 'Other') + ', ' + row.peer_protocols + ' live peer' + (row.peer_protocols === 1 ? '' : 's') + ')</span><b>' + mult(row.peer_multiple) + 'x</b></div>' +
       '<div><span>' + esc(chainLabel) + '</span><b>' + mult(row.chain_multiplier) + 'x</b></div>' +
       '<div><span>Growth multiplier</span><b>' + mult(row.growth_multiplier) + 'x</b></div>' +
@@ -334,12 +396,14 @@
     }
   }
 
+  // -- render ----------------------------------------------------------------
+
   function render() {
     var categories = Array.from(new Set(DATA.rows.map(function (r) { return r.category || 'Other'; }))).sort();
     var catOptions = '<option value="all">All categories</option>' + categories.map(function (c) {
       return '<option value="' + esc(c) + '"' + (c === state.category ? ' selected' : '') + '>' + esc(c) + '</option>';
     }).join('');
-    var shown = state.tab === 'pre-token' ? filteredRows().length + ' rows shown' : DATA.live.length + ' live-token protocols';
+    var shown = state.tab === 'pre-token' ? visibleRows().length + ' rows shown' : DATA.live.length + ' live-token protocols';
     var html =
       '<div class="wrap">' +
       '<header class="masthead"><div class="brand"><span class="sweep"></span><span class="brand-name">Token Radar</span></div>' +
@@ -375,6 +439,8 @@
     window.__shotReady = true;
   }
 
+  // -- events ----------------------------------------------------------------
+
   app.addEventListener('input', function (e) {
     if (e.target && e.target.id === 'q') {
       state.q = e.target.value;
@@ -382,14 +448,19 @@
       writeHash();
       render();
       var q = document.getElementById('q');
-      if (q) { q.focus(); try { q.setSelectionRange(caret, caret); } catch (err) { /* older input types */ } }
+      if (q) {
+        q.focus();
+        try { q.setSelectionRange(caret, caret); } catch (err) { /* older input types */ }
+      }
     }
   });
+
   app.addEventListener('change', function (e) {
     if (!e.target) return;
     if (e.target.id === 'category') { state.category = e.target.value; writeHash(); render(); }
     if (e.target.id === 'tier') { state.tier = e.target.value; writeHash(); render(); }
   });
+
   app.addEventListener('click', function (e) {
     var t = e.target;
     while (t && t !== app) {
@@ -397,8 +468,10 @@
         if (t.getAttribute('data-tab')) { state.tab = t.getAttribute('data-tab'); render(); return; }
         if (t.getAttribute('data-sort')) {
           var key = t.getAttribute('data-sort');
-          if (state.sort === key) state.dir = -state.dir; else { state.sort = key; state.dir = -1; }
-          render(); return;
+          if (state.sort === key) state.dir = -state.dir;
+          else { state.sort = key; state.dir = -1; }
+          render();
+          return;
         }
         if (t.getAttribute('data-clear')) { state.q = ''; state.category = 'all'; state.tier = 'all'; writeHash(); render(); return; }
         if (t.getAttribute('data-close')) { dialog.close(); return; }
@@ -407,12 +480,14 @@
       t = t.parentNode;
     }
   });
+
   app.addEventListener('keydown', function (e) {
     if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.getAttribute && e.target.getAttribute('data-slug')) {
       e.preventDefault();
       openDetail(e.target.getAttribute('data-slug'));
     }
   });
+
   window.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && dialog.open) dialog.close();
   });
