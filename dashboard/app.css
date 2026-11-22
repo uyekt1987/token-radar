@@ -163,6 +163,34 @@ a { color: var(--amber); }
 .seg button[aria-pressed="true"] { background: var(--amber); color: #1a1206; font-weight: 600; }
 .shown { margin-left: auto; color: var(--muted); font-size: 13px; align-self: center; }
 
+/* Category leaders: one card per category, the strongest protocol in it.
+   A card is a filter shortcut, so it reads as a button, not a label: the
+   active one, the category the board is showing, is amber. */
+.leaders { margin-bottom: var(--s4); }
+.leaders h2 { margin-bottom: var(--s1); }
+.leaders h2 span { color: var(--muted); font-size: 14px; font-weight: 500; }
+.leaders > p { color: var(--muted); font-size: 13px; margin-bottom: var(--s3); }
+.leader-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: var(--s2);
+}
+.leader-card {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: var(--s2) var(--s3);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.leader-card:hover { border-color: var(--amber-dim); background: var(--panel-2); }
+.leader-card.active { border-color: var(--amber); background: #1c1a10; }
+.leader-rank { font-family: var(--font-num); font-size: 12px; color: var(--amber); }
+.leader-name { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+.leader-value { font-family: var(--font-num); font-size: 12px; color: var(--muted); }
+.leader-cat { font-size: 11px; color: var(--muted); }
+
 /* Tables: the board and the live-token list share one look. */
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .scroll { overflow-x: auto; }
