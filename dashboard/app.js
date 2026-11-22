@@ -318,6 +318,42 @@
       '<tbody>' + rows + '</tbody></table></div></div>';
   }
 
+  // -- category leaders ------------------------------------------------------
+  //
+  // One card per category: the strongest pre-token protocol in it. A card is
+  // a filter shortcut — selecting it shows that category on the board — so the
+  // panel is the page's map of where the strongest launches sit. The rows
+  // arrive ranked, so the first row of a category is its leader; the check
+  // below keeps that true even if the order ever changes.
+
+  function categoryLeaders() {
+    var best = {};
+    DATA.rows.forEach(function (r) {
+      var key = r.category || 'Other';
+      if (!best[key] || r.rank < best[key].rank) best[key] = r;
+    });
+    return Object.keys(best).map(function (key) { return best[key]; })
+      .sort(function (a, b) { return a.rank - b.rank; });
+  }
+
+  function renderLeaders(section) {
+    var grid = section.querySelector('#leader-grid');
+    var count = section.querySelector('#leader-count');
+    if (!grid) return;
+    var leaders = categoryLeaders();
+    if (count) count.textContent = '(' + leaders.length + ' categories)';
+    grid.innerHTML = leaders.map(function (r) {
+      var category = r.category || 'Other';
+      var active = state.category === category;
+      var tier = r.tier === 'watchlist' ? 'watchlist' : r.tier === 'early' ? 'early' : 'extended';
+      return '<button type="button" class="leader-card' + (active ? ' active' : '') + '" data-leader="' + esc(category) + '" aria-pressed="' + active + '">' +
+        '<span class="leader-rank">#' + r.rank + ' &middot; ' + esc(tier) + '</span>' +
+        '<span class="leader-name">' + esc(r.name) + '</span>' +
+        '<span class="leader-value">' + usd(r.implied_value_usd) + ' implied</span>' +
+        '<span class="leader-cat">' + esc(category) + '</span></button>';
+    }).join('');
+  }
+
   // -- model explainer -------------------------------------------------------
 
   function calibrationPanel() {
@@ -432,8 +468,18 @@
       (state.tab === 'pre-token' ? boardTable() : liveTable()) +
       (state.tab === 'pre-token' ? modelPanel() : '') +
       '</div>';
+    // The leaders panel is a static section in index.html; the board is
+    // redrawn around it, so keep it and put it back above the board.
+    var leadersEl = document.getElementById('leaders');
     app.innerHTML = html;
     app.setAttribute('aria-busy', 'false');
+    if (leadersEl) {
+      var wrap = app.querySelector('.wrap');
+      var firstCard = wrap ? wrap.querySelector('.card') : null;
+      if (wrap && firstCard) wrap.insertBefore(leadersEl, firstCard);
+      else if (wrap) wrap.appendChild(leadersEl);
+      renderLeaders(leadersEl);
+    }
     if (!dialog.isConnected) app.appendChild(dialog);
     if (state.selected) openDetail(state.selected);
     window.__shotReady = true;
@@ -466,6 +512,13 @@
     while (t && t !== app) {
       if (t.getAttribute) {
         if (t.getAttribute('data-tab')) { state.tab = t.getAttribute('data-tab'); render(); return; }
+        if (t.getAttribute('data-leader')) {
+          state.tab = 'pre-token';
+          state.category = t.getAttribute('data-leader');
+          writeHash();
+          render();
+          return;
+        }
         if (t.getAttribute('data-sort')) {
           var key = t.getAttribute('data-sort');
           if (state.sort === key) state.dir = -state.dir;
