@@ -121,6 +121,28 @@
       default: return 'Make a second deposit, about $' + Math.round(capital / 2) + ', into a different pool of ' + name + ' on ' + chain + '.';
     }
   }
+  function weeklyAction(p, capital, chain) {
+    var name = p.name;
+    var small = Math.round(capital / 5);
+    switch (familyOf(p)) {
+      case 'lending': return 'Repay about $' + small + ' of the borrow and borrow it back, so the position shows fresh lending activity each week.';
+      case 'liquidity': return 'Add about $' + small + ' of liquidity to the same pool each week and stake the new LP receipt in the rewards gauge.';
+      case 'yield': return "Claim the strategy's yield each week and redeposit it into the same " + name + ' strategy on ' + chain + '.';
+      case 'bridge': return 'Bridge about $' + small + ' in either direction through ' + name + ' each week, so the record shows regular volume.';
+      case 'staking': return 'Claim the staking rewards each week and restake them through ' + name + ', so the position compounds.';
+      case 'derivatives': return 'Close and reopen a small hedged position on ' + name + ' each week, so the record shows repeated trades.';
+      case 'prediction': return 'Place one small position on a new ' + name + ' market each week and let it settle.';
+      case 'vault': return 'Deposit a small top-up, about $' + small + ', into the same ' + name + ' vault each week and keep the shares.';
+      case 'stable': return 'Move a small amount of the stable asset in or out through ' + name + ' each week, so the position stays active.';
+      case 'rwa': return 'Check the accrued yield on ' + name + ' each week and reinvest it into the same asset.';
+      case 'insurance': return 'Check the ' + name + ' cover each week and top it up before it lapses.';
+      case 'chain': return 'Use the ' + chain + ' flagship app once a week, a swap or a stake, so the wallet stays active on the chain.';
+      case 'launchpad': return "Check " + name + "'s launch calendar each week and complete the task it lists for its next launch.";
+      case 'governance': return 'Vote on each new ' + name + ' proposal the week it opens and leave a short comment in the forum thread.';
+      case 'payments': return 'Make one small real payment through ' + name + ' each week.';
+      default: return 'Make one qualifying action each week, such as a deposit or a swap into ' + name + ' on ' + chain + ', so the position stays active.';
+    }
+  }
   function farmSteps(p) {
     var chain = chainOf(p);
     var capital = capitalFor(p);
@@ -130,7 +152,7 @@
       { text: 'Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.', cost: 'under $3 of gas for the first transaction', time: '5 minutes' },
       { text: mainAction(p, capital, chain), cost: '$' + capital + ' of capital and about $' + gas + ' of gas', time: '15 minutes to set up' },
       { text: secondAction(p, capital, chain), cost: 'about $' + Math.round(capital / 4) + ' moved and about $3 of gas', time: '10 minutes' },
-      { text: 'Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote.', cost: 'about $2 of gas a week', time: '10 minutes a week' },
+      { text: weeklyAction(p, capital, chain), cost: 'about $2 of gas a week', time: '10 minutes a week' },
       { text: 'Hold the position for at least ' + hold + ' days so the activity is counted in more than one snapshot.', cost: 'the $' + capital + ' stays in the position', time: hold + ' days' },
       { text: "Before you withdraw, open the protocol's own points or rewards page and claim only from the link it publishes.", cost: 'no fee to check, and never pay to claim', time: '10 minutes' },
       { text: 'Write the wallet, the dates and every transaction in a farm log so you can repeat the position or unwind it.', cost: 'nothing but the log', time: '5 minutes' }
@@ -250,12 +272,20 @@
     return '<section class="card model"><h2>How implied value is computed</h2>' +
       '<p>Every row is scored by one function of the snapshot figures. No protocol name is special-cased, and no row is hand-picked.</p>' +
       '<div class="formula">implied = round( tvl_usd x peer(category) x chain(avg of all chains) x (1 + clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100 x ' + m.growth_weight + ') x (' + m.maturity_floor + ' + min(age_days, ' + m.maturity_days + ') / ' + m.maturity_days + ' x ' + m.maturity_range + ') )</div>' +
-      '<p>TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token; an unlisted age uses ' + m.unknown_age_days + ' days. The peer multiple is the median market-cap-to-TVL ratio of the live-token protocols in that category. Ratios are winsorized to 0.02..5.0 before the median is taken, so one extreme outlier cannot move it, and the median is shrunk toward the global median when a category has fewer than ' + m.peer_shrink + ' live peers, so one protocol cannot set a whole category\u2019s price. The chain multiple averages the same ratio over every chain the protocol names, relative to the global median, so a protocol on several chains is valued by all of them, not only its first. The early radar is every pre-token protocol below the watchlist floor under the watchlist\u2019s own strict rule; the extended tier adds the next pre-token protocols the strict rule leaves out, bridges, liquid-staking products and versioned pools among them.</p>' +
+      '<p>TVL and seven-day growth come from the snapshot. Age is the time since the protocol was first listed, the best record of how long it has run with no token; an unlisted age uses ' + m.unknown_age_days + ' days. The peer multiple is the geometric median market-cap-to-TVL ratio of the live-token protocols in that category, the median of the log ratios, exponentiated: ratios span orders of magnitude, so an arithmetic median is dragged by the fat tail. Ratios are winsorized to 0.02..5.0 before the median is taken, so one extreme outlier cannot move it, and the median is shrunk toward the global median in log space when a category has fewer than ' + m.peer_shrink + ' live peers, so one protocol cannot set a whole category\u2019s price. The chain multiple averages the same ratio over every chain the protocol names, relative to the global median, so a protocol on several chains is valued by all of them, not only its first. The early radar is every pre-token protocol below the watchlist floor under the watchlist\u2019s own strict rule; the extended tier adds the next pre-token protocols the strict rule leaves out, bridges, liquid-staking products and versioned pools among them.</p>' +
       '</section>' +
       '<section class="card model peers"><h2>Peer multiples, derived from the live set</h2>' +
-      '<p>The twelve richest categories by peer multiple. Each multiple is the winsorized median market cap per dollar of TVL among the live-token protocols in that category.</p>' +
+      '<p>The twelve richest categories by peer multiple. Each multiple is the winsorized geometric median market cap per dollar of TVL among the live-token protocols in that category.</p>' +
       '<div class="scroll"><table><thead><tr><th scope="col">Category</th><th scope="col">Peer multiple</th><th scope="col">Live peers</th></tr></thead><tbody>' + peers + '</tbody></table></div></section>' +
+      calibPanel() +
       '<p class="note">Implied value is this entry\u2019s own claim, never a price and never a prediction that a token will launch. A protocol on this board records no token in the snapshot; that is the record, not proof it has none.</p>';
+  }
+
+  function calibPanel() {
+    var c = DATA.calibration;
+    if (!c) return '';
+    return '<section class="card model calib"><h2>Validated, not guessed</h2>' +
+      '<p>Every live-token protocol in the snapshot was scored as if it were pre-token, with its peer tables built from the other live protocols only, and the model\u2019s value compared with its actual market cap (' + c.live_protocols + ' live protocols). radar-3 missed by a log-RMSE of ' + c.radar3_rmse_tune + ' on the tune half and ' + c.radar3_rmse_holdout + ' on the held-out half, rank correlation ' + c.radar3_spearman_tune + ' / ' + c.radar3_spearman_holdout + '. radar-4 misses by ' + c.radar4_rmse_tune + ' / ' + c.radar4_rmse_holdout + ', rank correlation ' + c.radar4_spearman_tune + ' / ' + c.radar4_spearman_holdout + '. The noisy inputs were damped where the test said they were over-weighted: growth 0.65 to 0.30, maturity floor 0.50 to 0.70, peer shrink 5 to 8, chain clamp 0.8..1.3 to 0.7..1.2. A log-RMSE near 2 means a typical value is off by roughly an order of magnitude, so the model ranks launches; it does not price them.</p></section>';
   }
 
   var dialog = document.createElement('dialog');
@@ -289,7 +319,7 @@
       '<div><span>TVL</span><b>' + usd(row.tvl_usd) + '</b></div>' +
       '<div><span>Seven-day growth</span><b>' + pct(row.change_7d) + '</b></div>' +
       '<div><span>Age with no token</span><b>' + age(row.age_days) + '</b></div>' +
-      '<div><span>Peer multiple (' + esc(row.category || 'Other') + ', ' + row.peer_protocols + ' live peers)</span><b>' + mult(row.peer_multiple) + 'x</b></div>' +
+      '<div><span>Peer multiple (' + esc(row.category || 'Other') + ', ' + row.peer_protocols + ' live peer' + (row.peer_protocols === 1 ? '' : 's') + ')</span><b>' + mult(row.peer_multiple) + 'x</b></div>' +
       '<div><span>' + esc(chainLabel) + '</span><b>' + mult(row.chain_multiplier) + 'x</b></div>' +
       '<div><span>Growth multiplier</span><b>' + mult(row.growth_multiplier) + 'x</b></div>' +
       '<div><span>Maturity multiplier</span><b>' + mult(row.maturity_multiplier) + 'x</b></div>' +
