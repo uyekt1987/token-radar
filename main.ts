@@ -17,7 +17,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { boardIssue, buildRadar, dataScript, parseSnapshot } from './lib/model.ts';
+import { boardIssue, buildRadar, dataScript, parseSnapshot, validateModel } from './lib/model.ts';
 import { buildDossier } from './vendor/makefun-board.ts';
 
 const repoRoot = fileURLToPath(new URL('.', import.meta.url));
@@ -63,6 +63,11 @@ const snapshot = parseSnapshot(readFileSync(inputPath, 'utf8'));
 const { board, radar } = buildRadar(snapshot);
 const refused = boardIssue(board, snapshot);
 if (refused !== null) die(`the model wrote a board the gate refuses: ${refused}`);
+
+// The backtest runs on the same snapshot the board was scored from, and it
+// prints to stdout only: it changes no output file, so the board, the data
+// and the dossier stay exactly as the model wrote them.
+const validation = validateModel(snapshot);
 
 // --- write the outputs ------------------------------------------------------
 
@@ -111,5 +116,8 @@ writeFileSync(
 
 process.stdout.write(
   `token radar: ${snapshot.protocols.length} protocols, ${snapshot.watchlist.length} on the watchlist, ${board.length} rows scored (${radar.early_size} early, ${radar.extended_size} extended, ${radar.live_size} live set aside)\n` +
-    `token radar: wrote ${join(outputDir, 'board.json')}, ${join(outputDir, 'data.js')}, ${join(outputDir, 'dashboard')} (${dashboardFiles.length} files), ${join(outputDir, 'screenshots')} (${screenshotFiles.length} images) and ${join(outputDir, 'dossier.json')}\n`,
+    `token radar: wrote ${join(outputDir, 'board.json')}, ${join(outputDir, 'data.js')}, ${join(outputDir, 'dashboard')} (${dashboardFiles.length} files), ${join(outputDir, 'screenshots')} (${screenshotFiles.length} images) and ${join(outputDir, 'dossier.json')}\n` +
+    `token radar: model validation, leave-one-out on ${validation.live_protocols} live protocols\n` +
+    `token radar:   log-RMSE ${validation.log_rmse.toFixed(2)}, Spearman ${validation.spearman.toFixed(2)}, median |log error| ${validation.median_abs_log_error.toFixed(2)}, worst |log error| ${validation.worst_abs_log_error.toFixed(2)}\n` +
+    `token radar:   a log-RMSE near 2 means a typical value is off by roughly an order of magnitude: the model ranks launches, it does not price them\n`,
 );
